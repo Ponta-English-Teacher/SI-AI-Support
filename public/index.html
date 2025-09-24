@@ -234,25 +234,28 @@
     createTask(5, "Narration Practice", "Finalize your speech and improve it together.");
 
     // Restore if saved HTML has embedded state
-    if (window.SAVED_STATE) {
-      chatHistories = window.SAVED_STATE.chatHistories || {};
+if (window.SAVED_STATE) {
+  chatHistories = window.SAVED_STATE.chatHistories || {};
 
-      Object.keys(chatHistories).forEach((taskNum) => {
-        const chatBox = document.getElementById(`chat${taskNum}`);
-        const inputBox = document.getElementById(`input${taskNum}`);
-        const sendBtn = document.getElementById(`send${taskNum}`);
-        if (!chatBox || !inputBox || !sendBtn) return;
+  Object.keys(chatHistories).forEach((taskNum) => {
+    const chatBox = document.getElementById(`chat${taskNum}`);
+    const inputBox = document.getElementById(`input${taskNum}`);
+    const sendBtn = document.getElementById(`send${taskNum}`);
+    if (!chatBox || !inputBox || !sendBtn) return;
 
-        // Show inputs
-        chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
+    // Show inputs
+    chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
 
-        // Restore messages
-        chatBox.innerText = chatHistories[taskNum]
-          .filter(m => m.role === "user" || m.role === "assistant")
-          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
-          .join("\n\n");
-      });
-    }
+    // Restore messages
+    chatBox.innerText = chatHistories[taskNum]
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
+      .join("\n\n");
+
+    // Make sure send button continues conversation
+    sendBtn.onclick = () => sendToGPT(taskNum);
+  });
+}
   </script>
 </body>
 </html>
