@@ -1,6 +1,6 @@
 function setCors(req, res) {
   const origin = req.headers.origin || "null"; // file:// requests usually send Origin: null
-  const allowed = ["null", "https://si-ai-support.vercel.app"]; // adjust to your real domain
+  const allowed = ["null", "https://si-ai-support.vercel.app"]; // adjust if your domain changes
 
   const allow = allowed.includes(origin) ? origin : "null";
 
@@ -13,8 +13,13 @@ function setCors(req, res) {
 export default async function handler(req, res) {
   setCors(req, res);
 
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+  if (req.method === "OPTIONS") {
+    return res.status(204).end(); // Handle CORS preflight
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
 
   try {
     const { messages, ...rest } = req.body || {};
@@ -35,6 +40,7 @@ export default async function handler(req, res) {
 
     const text = await upstream.text();
     const status = upstream.status;
+
     try {
       return res.status(status).json(JSON.parse(text));
     } catch {
