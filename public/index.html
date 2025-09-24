@@ -40,8 +40,7 @@
 
   <script>
     // ============ CONFIG ============
-    const API_ORIGIN = "https://si-ai-support.vercel.app"; 
-    const API_CHAT = (location.protocol === "file:" ? API_ORIGIN : "") + "/api/chat";
+    const API_CHAT = "https://si-ai-support.vercel.app/api/chat";
 
     // ============ PROMPTS ============
     const taskPrompts = {
@@ -244,7 +243,10 @@
         const sendBtn = document.getElementById(`send${taskNum}`);
         if (!chatBox || !inputBox || !sendBtn) return;
 
+        // Show inputs
         chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
+
+        // Restore messages
         chatBox.innerText = chatHistories[taskNum]
           .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
