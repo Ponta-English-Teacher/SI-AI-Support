@@ -40,7 +40,7 @@
 
   <script>
     // ============ CONFIG ============
-    const API_ORIGIN = "https://si-ai-support.vercel.app"; // replace with your actual Vercel domain
+    const API_ORIGIN = "https://si-ai-support.vercel.app"; 
     const API_CHAT = (location.protocol === "file:" ? API_ORIGIN : "") + "/api/chat";
 
     // ============ PROMPTS ============
@@ -97,8 +97,16 @@
       const inputBox = document.getElementById(`input${taskNum}`);
       const sendBtn = document.getElementById(`send${taskNum}`);
       chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
-      chatBox.innerText = "⏳ Loading...";
 
+      // If history already exists (e.g., opened from saved file), just render & return
+      if (Array.isArray(chatHistories[taskNum]) && chatHistories[taskNum].length > 0) {
+        chatBox.innerText = chatHistories[taskNum]
+          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
+          .join("\n\n");
+        return;
+      }
+
+      chatBox.innerText = "⏳ Loading...";
       chatHistories[taskNum] = [
         { role: "system", content: taskPrompts[taskNum] },
         { role: "user", content: starterUserMessages[taskNum] }
@@ -113,7 +121,10 @@
         const data = await res.json();
         const message = data.choices?.[0]?.message;
         if (message) chatHistories[taskNum].push(message);
-        chatBox.innerText = message?.content || "(No message returned)";
+
+        chatBox.innerText = chatHistories[taskNum]
+          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
+          .join("\n\n");
       } catch (err) {
         chatBox.innerText = "❌ Failed to load response.";
       }
@@ -136,7 +147,10 @@
         const data = await res.json();
         const message = data.choices?.[0]?.message;
         if (message) chatHistories[taskNum].push(message);
-        chatBox.innerText += `\n\nChatGPT: ${message.content}`;
+
+        chatBox.innerText = chatHistories[taskNum]
+          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
+          .join("\n\n");
       } catch (err) {
         chatBox.innerText += "\n❌ Failed to get response.";
       }
@@ -221,6 +235,18 @@
     // Restore if saved HTML has embedded state
     if (window.SAVED_STATE) {
       chatHistories = window.SAVED_STATE.chatHistories || {};
+
+      Object.keys(chatHistories).forEach((taskNum) => {
+        const chatBox = document.getElementById(`chat${taskNum}`);
+        const inputBox = document.getElementById(`input${taskNum}`);
+        const sendBtn = document.getElementById(`send${taskNum}`);
+        if (!chatBox || !inputBox || !sendBtn) return;
+
+        chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
+        chatBox.innerText = chatHistories[taskNum]
+          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
+          .join("\n\n");
+      });
     }
   </script>
 </body>
