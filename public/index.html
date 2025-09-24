@@ -98,9 +98,9 @@
       const sendBtn = document.getElementById(`send${taskNum}`);
       chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
 
-      // If history already exists (e.g., opened from saved file), just render & return
       if (Array.isArray(chatHistories[taskNum]) && chatHistories[taskNum].length > 0) {
         chatBox.innerText = chatHistories[taskNum]
+          .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
           .join("\n\n");
         return;
@@ -123,6 +123,7 @@
         if (message) chatHistories[taskNum].push(message);
 
         chatBox.innerText = chatHistories[taskNum]
+          .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
           .join("\n\n");
       } catch (err) {
@@ -149,6 +150,7 @@
         if (message) chatHistories[taskNum].push(message);
 
         chatBox.innerText = chatHistories[taskNum]
+          .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
           .join("\n\n");
       } catch (err) {
@@ -244,6 +246,7 @@
 
         chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
         chatBox.innerText = chatHistories[taskNum]
+          .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
           .join("\n\n");
       });
