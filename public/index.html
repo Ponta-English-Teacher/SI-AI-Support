@@ -241,6 +241,8 @@ if (window.SAVED_STATE) {
     const chatBox = document.getElementById(`chat${taskNum}`);
     const inputBox = document.getElementById(`input${taskNum}`);
     const sendBtn = document.getElementById(`send${taskNum}`);
+    const startBtn = document.querySelector(`button[onclick="startTask(${taskNum})"]`);
+
     if (!chatBox || !inputBox || !sendBtn) return;
 
     // Show inputs
@@ -252,11 +254,16 @@ if (window.SAVED_STATE) {
       .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
       .join("\n\n");
 
-    // Make sure send button continues conversation
+    // Rebind send button to continue
     sendBtn.onclick = () => sendToGPT(taskNum);
+
+    // Disable "Start Task" so it doesn't reset history
+    if (startBtn) {
+      startBtn.disabled = true;
+      startBtn.textContent = `Task ${taskNum} (restored)`;
+    }
   });
-}
-  </script>
+}  </script>
 </body>
 </html>
 
