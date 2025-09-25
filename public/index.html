@@ -77,22 +77,74 @@ END:
 
     let chatHistories = {};
 
-    // ============ Context Builder for Task 4 (NEW) ============
-    async function buildContextForTask4() {
-      const asText = (n) =>
-        (chatHistories[n] || [])
-          .filter(m => m.role !== "system")
-          .map(m => `${m.role === "user" ? "You" : "Assistant"}: ${m.content}`)
-          .join("\n")
-          .slice(-5000); // keep compact
+    // ============ LOCAL CONTEXT CACHE (studentContext) ============
+    const CTX_KEY = "si_ai_support_context_v1";
+    let studentContext = loadContext() || {
+      profile: { name: null, birthday: null, hometown: null, others: [] },
+      traits: [],
+      theme: { title: null, keywords: [], notes: null }
+    };
 
-      const t1 = asText(1);
-      const t2 = asText(2);
-      const t3 = asText(3);
-      if (!(t1 || t2 || t3)) return null;
+    function loadContext() {
+      try { return JSON.parse(localStorage.getItem(CTX_KEY) || "null"); }
+      catch { return null; }
+    }
+    function saveContext() {
+      localStorage.setItem(CTX_KEY, JSON.stringify(studentContext));
+    }
+    // Merge new partial context into cache
+    function mergeContext(part) {
+      if (!part || typeof part !== "object") return;
+      // profile
+      if (part.profile) {
+        studentContext.profile = studentContext.profile || {};
+        for (const k of ["name","birthday","hometown"]) {
+          if (part.profile[k] != null && part.profile[k] !== "") {
+            studentContext.profile[k] = part.profile[k];
+          }
+        }
+        if (Array.isArray(part.profile.others)) {
+          const set = new Set([...(studentContext.profile.others || []), ...part.profile.others]);
+          studentContext.profile.others = Array.from(set);
+        }
+      }
+      // traits
+      if (Array.isArray(part.traits)) {
+        const set = new Set([...(studentContext.traits || []), ...part.traits]);
+        studentContext.traits = Array.from(set);
+      }
+      // theme
+      if (part.theme) {
+        studentContext.theme = studentContext.theme || {};
+        for (const k of ["title","notes"]) {
+          if (part.theme[k] != null && part.theme[k] !== "") {
+            studentContext.theme[k] = part.theme[k];
+          }
+        }
+        if (Array.isArray(part.theme.keywords)) {
+          const set = new Set([...(studentContext.theme.keywords || []), ...part.theme.keywords]);
+          studentContext.theme.keywords = Array.from(set);
+        }
+      }
+      saveContext();
+    }
+
+    // Helpers to get task logs
+    const taskText = (n) =>
+      (chatHistories[n] || [])
+        .filter(m => m.role !== "system")
+        .map(m => `${m.role === "user" ? "You" : "Assistant"}: ${m.content}`)
+        .join("\n")
+        .slice(-5000);
+
+    // Robust one-shot summarizer (used during Tasks 1–3)
+    async function summarizeTasksToContext() {
+      const t1 = taskText(1), t2 = taskText(2), t3 = taskText(3);
+      if (!(t1 || t2 || t3)) return false;
 
       const summarizerMsgs = [
-        { role: "system", content: "Extract key fields into compact JSON. If unknown, use null. Keys: {profile:{name,birthday,hometown,others[]}, traits:[...], theme:{title,keywords[],notes}}. Only output JSON." },
+        { role: "system",
+          content: "Return ONLY raw JSON (no code fences). If unknown, use null. Keys: {profile:{name,birthday,hometown,others[]}, traits:[...], theme:{title,keywords[],notes}}." },
         { role: "user", content: `Task1 log:\n${t1}\n\nTask2 log:\n${t2}\n\nTask3 log:\n${t3}` }
       ];
 
@@ -103,15 +155,28 @@ END:
           body: JSON.stringify({ model: "gpt-4o", messages: summarizerMsgs })
         });
         const data = await res.json();
-        const json = data.choices?.[0]?.message?.content?.trim();
-        if (json && json.startsWith("{") && json.endsWith("}")) return json;
+        let txt = (data.choices?.[0]?.message?.content || "").trim();
+
+        // Strip ```json fences if present; extract first {...}
+        txt = txt.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+        const first = txt.indexOf("{");
+        const last  = txt.lastIndexOf("}");
+        if (first !== -1 && last > first) {
+          const candidate = txt.slice(first, last + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            mergeContext(parsed);
+            console.log("Live context updated from Tasks 1–3");
+            return true;
+          } catch { return false; }
+        }
       } catch (e) {
-        console.warn("Task4 context summarization failed:", e);
+        console.warn("Summarizer error:", e);
       }
-      return null;
+      return false;
     }
 
-    // ============ TASKS ============
+    // ============ TASKS UI ============
     function createTask(taskNum, title, description) {
       const container = document.getElementById("taskContainer");
       const section = document.createElement("div");
@@ -157,18 +222,27 @@ END:
         { role: "user", content: starterUserMessages[taskNum] }
       ];
 
-      // NEW: Inject context for Task 4 so it doesn't repeat earlier tasks
+      // Before Task 4 starts, ensure store is fresh and inject it
       if (taskNum === 4) {
-        const contextJSON = await buildContextForTask4();
-        if (contextJSON) {
+        await summarizeTasksToContext(); // <-- guarantees the store exists BEFORE Task 4 prompt
+        const raw = (`Task1:\n${taskText(1)}\n\nTask2:\n${taskText(2)}\n\nTask3:\n${taskText(3)}`).slice(-4000);
+
+        // Normalized cached context (authoritative)
+        try {
           chatHistories[taskNum].unshift({
             role: "system",
-            content: "Context from Tasks 1–3 (use these facts; do NOT re-ask them): " + contextJSON
+            content:
+              "Normalized context (authoritative; do NOT re-ask; ask only one 'Missing:' if truly required): " +
+              JSON.stringify(studentContext)
           });
-        } else {
+        } catch {}
+
+        // Raw logs fallback (extra detail if needed)
+        if (raw.trim()) {
           chatHistories[taskNum].unshift({
             role: "system",
-            content: "No prior context available. Create slides with placeholders, and ONLY ask single, targeted fill-in questions prefixed with 'Missing:' for truly essential fields. Do NOT re-ask general profile/personality/theme questions."
+            content:
+              "Raw context excerpts from Tasks 1–3 (use; do NOT re-ask; prefer normalized fields above):\n" + raw
           });
         }
       }
@@ -214,6 +288,13 @@ END:
           .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
           .join("\n\n");
+
+        // LIVE context capture during Tasks 1–3 after each assistant turn
+        if (taskNum === 1 || taskNum === 2 || taskNum === 3) {
+          // don't block UI; fire and forget
+          summarizeTasksToContext();
+        }
+
       } catch (err) {
         chatBox.innerText += "\n❌ Failed to get response.";
       }
@@ -273,7 +354,7 @@ END:
 
     // ============ SAVE-AS-HTML ============
     function saveAsHTML() {
-      const state = { chatHistories };
+      const state = { chatHistories, studentContext };
       const stateJSON = JSON.stringify(state);
       const stateScript = `<script>window.SAVED_STATE=${stateJSON}<\/script>`;
       const html = document.documentElement.outerHTML.replace(/<\/body>\s*<\/html>\s*$/i, `${stateScript}\n</body></html>`);
@@ -298,6 +379,10 @@ END:
     // Restore if saved HTML has embedded state
     if (window.SAVED_STATE) {
       chatHistories = window.SAVED_STATE.chatHistories || {};
+      if (window.SAVED_STATE.studentContext) {
+        studentContext = window.SAVED_STATE.studentContext;
+        saveContext(); // persist to localStorage as well
+      }
 
       Object.keys(chatHistories).forEach((taskNum) => {
         const chatBox = document.getElementById(`chat${taskNum}`);
