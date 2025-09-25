@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SI AI Support</title>
+  <title>SI AI Support (Patched)</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 2rem; background-color: #f4f4f4; color: #333; }
     .section { margin-bottom: 2rem; padding: 1rem; background: #fff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -50,7 +50,19 @@
 
       3: `You are helping the student discover their core message and presentation theme. Begin by asking them to talk about their interests or what they like to do. Ask one open-ended question at a time, using simple language and giving relatable examples (e.g., drawing, helping others, cooking, etc.). React supportively and ask follow-up questions as needed. Suggest a few possible themes based on what they share, such as 'Creative spirit with quiet confidence' or 'Sports lover with leadership dreams'. Be sure to keep the tone encouraging and conversational.`,
 
-      4: `Help the student turn their answers into a self-introduction presentation. Based on what they shared in Tasks 1 to 3, create a slide outline with 5–7 slides. Each slide should have a clear title and slide content only (no narration). Slide 1 should be a table with fields like: Name, Birthday, Hometown, Others (left column) and their answers (right column). Slide 2 should be keywords only (e.g., Calm / Curious / Independent). Do not include narration here — narration will be created in Task 5. Ask any follow-up questions needed to fill in missing content. At the end, confirm: 'Would you like to move on to the narration practice next?'`,
+      4: `Help the student turn their answers into a self-introduction presentation.
+STRICT RULES:
+- Do NOT re-ask questions already covered in Tasks 1–3 (profile, personality, theme).
+- Use only the provided context. If an essential single field is missing for a slide, ask a SINGLE, targeted, fill-in-the-blank question prefixed with "Missing:" (e.g., "Missing: Birthday (YYYY-MM-DD)"). Never ask open-ended repeats.
+
+OUTPUT:
+- Create a 5–7 slide outline. Titles + bullet content only (no narration).
+- Slide 1: a table with fields: Name, Birthday, Hometown, Others (left) → answers (right).
+- Slide 2: keywords only (e.g., Calm / Curious / Independent).
+- Slides 3–5+: use the student’s theme/interests from Task 3.
+
+END:
+- Ask: "Would you like to move on to the narration practice next?"`,
 
       5: `Work with the student to refine their presentation narration. Use the slides created in Task 4 and go through them one by one. For each slide, ask the student: 'What would you like to say for this slide?' Then help them write a natural-sounding narration, improving clarity and flow while keeping their personality and style. Give encouragement and clear suggestions. When all slides are covered, confirm: 'That’s a great draft! Would you like to practice reading it out loud or revise anything?'`
     };
@@ -64,6 +76,40 @@
     };
 
     let chatHistories = {};
+
+    // ===== Build compact context for Task 4 (NEW) =====
+    async function buildContextForTask4() {
+      const asText = (n) =>
+        (chatHistories[n] || [])
+          .filter(m => m.role !== "system")
+          .map(m => `${m.role === "user" ? "You" : "Assistant"}: ${m.content}`)
+          .join("\\n")
+          .slice(-5000); // keep compact but useful
+
+      const t1 = asText(1);
+      const t2 = asText(2);
+      const t3 = asText(3);
+
+      if (!(t1 || t2 || t3)) return null;
+
+      const summarizerMsgs = [
+        { role: "system", content: "Extract key fields from the logs into compact JSON. If unknown, use null. Keys: {profile:{name,birthday,hometown,others[]}, traits:[...], theme:{title,keywords[],notes}}. Only output JSON." },
+        { role: "user", content: `Task1 (profile) log:\\n${t1}\\n\\nTask2 (personality) log:\\n${t2}\\n\\nTask3 (theme) log:\\n${t3}` }
+      ];
+      try {
+        const res = await fetch(API_CHAT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "gpt-4o", messages: summarizerMsgs })
+        });
+        const data = await res.json();
+        const json = data.choices?.[0]?.message?.content?.trim();
+        if (json && json.startsWith("{") && json.endsWith("}")) return json;
+      } catch (e) {
+        console.warn("Context summary failed:", e);
+      }
+      return null;
+    }
 
     // ============ TASKS ============
     function createTask(taskNum, title, description) {
@@ -83,25 +129,25 @@
     }
 
     function resetTask(taskNum) {
-      document.getElementById(`chat${taskNum}`).innerText = "";
-      document.getElementById(`input${taskNum}`).value = "";
-      document.getElementById(`chat${taskNum}`).style.display = "none";
-      document.getElementById(`input${taskNum}`).style.display = "none";
-      document.getElementById(`send${taskNum}`).style.display = "none";
+      document.getElementById(\`chat\${taskNum}\`).innerText = "";
+      document.getElementById(\`input\${taskNum}\`).value = "";
+      document.getElementById(\`chat\${taskNum}\`).style.display = "none";
+      document.getElementById(\`input\${taskNum}\`).style.display = "none";
+      document.getElementById(\`send\${taskNum}\`).style.display = "none";
       delete chatHistories[taskNum];
     }
 
     async function startTask(taskNum) {
-      const chatBox = document.getElementById(`chat${taskNum}`);
-      const inputBox = document.getElementById(`input${taskNum}`);
-      const sendBtn = document.getElementById(`send${taskNum}`);
+      const chatBox = document.getElementById(\`chat\${taskNum}\`);
+      const inputBox = document.getElementById(\`input\${taskNum}\`);
+      const sendBtn = document.getElementById(\`send\${taskNum}\`);
       chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
 
       if (Array.isArray(chatHistories[taskNum]) && chatHistories[taskNum].length > 0) {
         chatBox.innerText = chatHistories[taskNum]
           .filter(m => m.role === "user" || m.role === "assistant")
-          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
-          .join("\n\n");
+          .map(m => \`\${m.role === "user" ? "You" : "ChatGPT"}: \${m.content}\`)
+          .join("\\n\\n");
         return;
       }
 
@@ -110,6 +156,22 @@
         { role: "system", content: taskPrompts[taskNum] },
         { role: "user", content: starterUserMessages[taskNum] }
       ];
+
+      // NEW: Inject context for Task 4 so it doesn't repeat earlier tasks
+      if (taskNum === 4) {
+        const contextJSON = await buildContextForTask4();
+        if (contextJSON) {
+          chatHistories[taskNum].unshift({
+            role: "system",
+            content: "Context from Tasks 1–3 (use these facts; do NOT re-ask them): " + contextJSON
+          });
+        } else {
+          chatHistories[taskNum].unshift({
+            role: "system",
+            content: "No prior context available. Create slides with placeholders, and ONLY ask single, targeted fill-in questions for missing fields. Do NOT re-ask general profile/personality/theme questions."
+          });
+        }
+      }
 
       try {
         const res = await fetch(API_CHAT, {
@@ -123,16 +185,16 @@
 
         chatBox.innerText = chatHistories[taskNum]
           .filter(m => m.role === "user" || m.role === "assistant")
-          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
-          .join("\n\n");
+          .map(m => \`\${m.role === "user" ? "You" : "ChatGPT"}: \${m.content}\`)
+          .join("\\n\\n");
       } catch (err) {
         chatBox.innerText = "❌ Failed to load response.";
       }
     }
 
     async function sendToGPT(taskNum) {
-      const inputBox = document.getElementById(`input${taskNum}`);
-      const chatBox = document.getElementById(`chat${taskNum}`);
+      const inputBox = document.getElementById(\`input\${taskNum}\`);
+      const chatBox = document.getElementById(\`chat\${taskNum}\`);
       const userMessage = inputBox.value.trim();
       if (!userMessage) return;
       inputBox.value = "";
@@ -150,10 +212,10 @@
 
         chatBox.innerText = chatHistories[taskNum]
           .filter(m => m.role === "user" || m.role === "assistant")
-          .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
-          .join("\n\n");
+          .map(m => \`\${m.role === "user" ? "You" : "ChatGPT"}: \${m.content}\`)
+          .join("\\n\\n");
       } catch (err) {
-        chatBox.innerText += "\n❌ Failed to get response.";
+        chatBox.innerText += "\\n❌ Failed to get response.";
       }
     }
 
@@ -176,7 +238,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: "gpt-4o", messages: [
             { role: "system", content: "You are a helpful dictionary assistant." },
-            { role: "user", content: `Define "${text}" simply for a Japanese student.` }
+            { role: "user", content: \`Define "\${text}" simply for a Japanese student.\` }
           ] })
         });
         const data = await res.json();
@@ -187,15 +249,15 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: "gpt-4o", messages: [
             { role: "system", content: "You are a Japanese academic assistant." },
-            { role: "user", content: `日本語で簡単に「${text}」の意味を説明してください（大学生向け）。` }
+            { role: "user", content: \`日本語で簡単に「\${text}」の意味を説明してください（大学生向け）。\` }
           ] })
         });
         const jpData = await jpRes.json();
         const jpMeaning = jpData.choices?.[0]?.message?.content || '';
 
-        dictDefinition.innerHTML = `${definition}<br><br><em>（日本語の意味）</em> ${jpMeaning}`;
+        dictDefinition.innerHTML = \`\${definition}<br><br><em>（日本語の意味）</em> \${jpMeaning}\`;
       } catch (err) {
-        dictDefinition.innerText = `Error: ${err.message}`;
+        dictDefinition.innerText = \`Error: \${err.message}\`;
       }
     }
 
@@ -203,7 +265,7 @@
       const word = document.getElementById('dictWord').innerText;
       const def = document.getElementById('dictDefinition').innerHTML;
       const row = document.createElement('tr');
-      row.innerHTML = `<td>${word}</td><td>${def}</td>`;
+      row.innerHTML = \`<td>\${word}</td><td>\${def}</td>\`;
       document.querySelector('#glossary-table tbody').appendChild(row);
       closePopup();
     }
@@ -213,13 +275,13 @@
     function saveAsHTML() {
       const state = { chatHistories };
       const stateJSON = JSON.stringify(state);
-      const stateScript = `<script>window.SAVED_STATE=${stateJSON}<\/script>`;
-      const html = document.documentElement.outerHTML.replace(/<\/body>\s*<\/html>\s*$/i, `${stateScript}\n</body></html>`);
+      const stateScript = \`<script>window.SAVED_STATE=\${stateJSON}<\\/script>\`;
+      const html = document.documentElement.outerHTML.replace(/<\\/body>\\s*<\\/html>\\s*$/i, \`\${stateScript}\\n</body></html>\`);
       const blob = new Blob([html], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SelfIntro_${new Date().toISOString().slice(0,10)}.html`;
+      a.download = \`SelfIntro_\${new Date().toISOString().slice(0,10)}.html\`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -234,36 +296,32 @@
     createTask(5, "Narration Practice", "Finalize your speech and improve it together.");
 
     // Restore if saved HTML has embedded state
-if (window.SAVED_STATE) {
-  chatHistories = window.SAVED_STATE.chatHistories || {};
+    if (window.SAVED_STATE) {
+      chatHistories = window.SAVED_STATE.chatHistories || {};
 
-  Object.keys(chatHistories).forEach((taskNum) => {
-    const chatBox = document.getElementById(`chat${taskNum}`);
-    const inputBox = document.getElementById(`input${taskNum}`);
-    const sendBtn = document.getElementById(`send${taskNum}`);
-    const startBtn = document.querySelector(`button[onclick="startTask(${taskNum})"]`);
+      Object.keys(chatHistories).forEach((taskNum) => {
+        const chatBox = document.getElementById(\`chat\${taskNum}\`);
+        const inputBox = document.getElementById(\`input\${taskNum}\`);
+        const sendBtn = document.getElementById(\`send\${taskNum}\`);
+        const startBtn = document.querySelector(\`button[onclick="startTask(\${taskNum})"]\`);
 
-    if (!chatBox || !inputBox || !sendBtn) return;
+        if (!chatBox || !inputBox || !sendBtn) return;
 
-    // Show inputs
-    chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
+        chatBox.style.display = inputBox.style.display = sendBtn.style.display = "block";
 
-    // Restore messages
-    chatBox.innerText = chatHistories[taskNum]
-      .filter(m => m.role === "user" || m.role === "assistant")
-      .map(m => `${m.role === "user" ? "You" : "ChatGPT"}: ${m.content}`)
-      .join("\n\n");
+        chatBox.innerText = chatHistories[taskNum]
+          .filter(m => m.role === "user" || m.role === "assistant")
+          .map(m => \`\${m.role === "user" ? "You" : "ChatGPT"}: \${m.content}\`)
+          .join("\\n\\n");
 
-    // Rebind send button to continue
-    sendBtn.onclick = () => sendToGPT(taskNum);
+        sendBtn.onclick = () => sendToGPT(taskNum);
 
-    // Disable "Start Task" so it doesn't reset history
-    if (startBtn) {
-      startBtn.disabled = true;
-      startBtn.textContent = `Task ${taskNum} (restored)`;
+        if (startBtn) {
+          startBtn.disabled = true;
+          startBtn.textContent = \`Task \${taskNum} (restored)\`;
+        }
+      });
     }
-  });
-}  </script>
+  </script>
 </body>
 </html>
-
